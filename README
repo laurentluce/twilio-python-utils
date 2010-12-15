@@ -1,0 +1,17 @@
+Twilio Python Utils
+
+Twilio Resources DB module:
+
+This library allows you to download your resources (calls, sms, notifications...) to your database. It also keep processing new ones so you don't have to be worried to be out of sync.
+
+Dependencies:
+
+Twilio Python Library helper: git clone https://github.com/twilio/twilio-python.git
+SQLAchemy: easy_install SQLAlchemy
+simplejson: easy_install simplejson
+
+Install library:
+
+git clone https://github.com/laurentluce/twilio-python-utils.git
+cd twilio-python-utils
+python setup.py install
