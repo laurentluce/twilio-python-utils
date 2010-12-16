@@ -1,5 +1,8 @@
 import sys, os
 from email.utils import parsedate
+from threading import Thread
+import logging
+import time
 
 import simplejson
 import twilio
@@ -36,6 +39,7 @@ class Call(object):
     self.forwardedFrom = resource['forwarded_from']
     self.callerName = resource['caller_name']
     self.uri = resource['uri']
+    self.accountId = resource['account_id']
     
   def __repr__(self):
     return "<call('%s')>" % (self.sid)
@@ -59,6 +63,7 @@ class Recording(object):
     self.apiVersion = resource['api_version']
     self.uri = resource['uri']
     self.callId = resource['call_id']
+    self.accountId = resource['account_id']
     
   def __repr__(self):
     return "<recording('%s')>" % (self.sid)
@@ -84,6 +89,7 @@ class Transcription(object):
     self.price = resource['price']
     self.uri = resource['uri']
     self.recordingId = resource['recording_id']
+    self.accountId = resource['account_id']
     
   def __repr__(self):
     return "<transcription('%s')>" % (self.sid)
@@ -116,6 +122,7 @@ class Notification(object):
     self.responseBody = resource['response_body']
     self.uri = resource['uri']
     self.callId = resource['call_id']
+    self.accountId = resource['account_id']
     
   def __repr__(self):
     return "<notification('%s')>" % (self.sid)
@@ -137,6 +144,7 @@ class Conference(object):
     self.dateUpdated = convert_rfc822_to_mysql_datetime(resource['date_updated'])
     self.accountSid = resource['account_sid']
     self.uri = resource['uri']
+    self.accountId = resource['account_id']
     
   def __repr__(self):
     return "<conference('%s')>" % (self.sid)
@@ -162,6 +170,7 @@ class Participant(object):
     self.uri = resource['uri']
     self.callId = resource['call_id']
     self.conferenceId = resource['conference_id']
+    self.accountId = resource['account_id']
     
   def __repr__(self):
     return "<participant('%s')>" % (self.sid)
@@ -210,11 +219,69 @@ class SmsMessage(object):
     self.price = resource['price']
     self.apiVersion = resource['api_version']
     self.uri = resource['uri']
+    self.accountId = resource['account_id']
     
   def __repr__(self):
     return "<sms_message('%s')>" % (self.sid)
 
-class Resources:
+class OutgoingCallerId(object):
+  """
+  Outgoing caller ID
+  """
+  def __init__(self, resource):
+    """
+    Class instantiation
+
+    @param resource resource JSON attribute
+    """
+    self.sid = resource['sid']
+    self.dateCreated = convert_rfc822_to_mysql_datetime(resource['date_created'])
+    self.dateUpdated = convert_rfc822_to_mysql_datetime(resource['date_updated'])
+    self.friendlyName = resource['friendly_name']
+    self.accountSid = resource['account_sid']
+    self.phoneNumber = resource['phone_number']
+    self.uri = resource['uri']
+    self.accountId = resource['account_id']
+    
+  def __repr__(self):
+    return "<outgoing_caller_id('%s')>" % (self.sid)
+
+class IncomingPhoneNumber(object):
+  """
+  Call resource
+  """
+  def __init__(self, resource):
+    """
+    Class instantiation
+
+    @param resource resource JSON attribute
+    """
+    self.sid = resource['sid']
+    self.dateCreated = convert_rfc822_to_mysql_datetime(resource['date_created'])
+    self.dateUpdated = convert_rfc822_to_mysql_datetime(resource['date_updated'])
+    self.friendlyName = resource['friendly_name']
+    self.accountSid = resource['account_sid']
+    self.phoneNumber = resource['phone_number']
+    self.apiVersion = resource['api_version']
+    self.voiceCallerIdLookup = resource['voice_caller_id_lookup']
+    self.voiceUrl = resource['voice_url']
+    self.voiceMethod = resource['voice_method']
+    self.voiceFallbackUrl = resource['voice_fallback_url']
+    self.voiceFallbackMethod = resource['voice_fallback_method']
+    self.statusCallback = resource['status_callback']
+    self.statusCallbackMethod = resource['status_callback_method']
+    self.smsUrl = resource['sms_url']
+    self.smsMethod = resource['sms_method']
+    self.smsFallbackUrl = resource['sms_fallback_url']
+    self.smsFallbackMethod = resource['sms_fallback_method']
+    self.uri = resource['uri']
+    self.accountId = resource['account_id']
+    
+  def __repr__(self):
+    return "<incoming_phone_number('%s')>" % (self.sid)
+
+
+class Resources(Thread):
   """
   Main class 
   """
@@ -224,36 +291,49 @@ class Resources:
 
     @param settings dict of settings
     """
+    Thread.__init__(self)
     # settings passed
     self.account_sid = settings['account_sid']
     self.account_token = settings['account_token']
-    self.api_version = settings['api_version']
+    self.api_version = '2010-04-01'
     self.database_type = settings['database_type']
     self.database_name = settings['database_name'] 
     self.database_user = settings['database_user'] 
     self.database_password = settings['database_password'] 
     self.database_host = settings['database_host']
     self.database_port = settings['database_port']
+    self.recording_format = settings['recording_format']
+    self.recording_path = settings['recording_path']
+    if not os.path.exists(self.recording_path):
+      os.mkdir(self.recording_path)
     self.engine = None
     self.metadata = None
     self.session = None
+    self.stop = False
     # add list of resources to process
     self.list_resources = []
-    resources = (('call', Call),
+    resources = (('account', Account),
+                 ('call', Call),
                  ('sms_message', SmsMessage), 
                  ('recording', Recording), 
                  ('transcription', Transcription), 
                  ('notification', Notification), 
                  ('conference', Conference), 
                  #('participant', Participant), 
-                 ('account', Account)
+                 ('outgoing_caller_id', OutgoingCallerId),
+                 ('incoming_phone_number', IncomingPhoneNumber) 
                  )
     for t, c in resources:
-      lr = dict(type=t, page=0, offset=0, pages=0, items=0, active={}, c=c)
+      lr = dict(type=t, page=0, offset=0, pages=0, items=0, active={}, cls=c)
       self.list_resources.append(lr)
 
     self.setup_connection()
     self.setup_tables()
+
+  def run(self):
+    """
+    Start main process loop
+    """
     self.process()
 
   def setup_connection(self):
@@ -290,8 +370,10 @@ class Resources:
       Column('answeredBy', String(16)),
       Column('forwardedFrom', String(15)),
       Column('callerName', Text),
-      Column('uri', Text)
+      Column('uri', Text),
+      Column('accountId', Integer, ForeignKey('accounts.id'))
     )
+    rel = relationship(Account, backref=backref('calls', order_by=id))
     
     recordings_table = Table('recordings', self.metadata,
       Column('id', Integer, primary_key=True),
@@ -303,9 +385,11 @@ class Resources:
       Column('duration', Integer),
       Column('apiVersion', String(10)),
       Column('uri', Text),
-      Column('callId', Integer, ForeignKey('calls.id'))
+      Column('callId', Integer, ForeignKey('calls.id')),
+      Column('accountId', Integer, ForeignKey('accounts.id'))
     )
     rel = relationship(Call, backref=backref('recordings', order_by=id))
+    rel = relationship(Account, backref=backref('recordings', order_by=id))
    
     transcriptions_table = Table('transcriptions', self.metadata,
       Column('id', Integer, primary_key=True),
@@ -319,9 +403,11 @@ class Resources:
       Column('transcriptionText', Text),
       Column('price', Integer),
       Column('uri', Text),
-      Column('recordingId', Integer, ForeignKey('recordings.id'))
+      Column('recordingId', Integer, ForeignKey('recordings.id')),
+      Column('accountId', Integer, ForeignKey('accounts.id'))
     )
     rel = relationship(Recording, backref=backref('transcriptions', order_by=id))
+    rel = relationship(Account, backref=backref('transcriptions', order_by=id))
 
     notifications_table = Table('notifications', self.metadata,
       Column('id', Integer, primary_key=True),
@@ -341,9 +427,11 @@ class Resources:
       Column('requestHeaders', Text),
       Column('requestBody', Text),
       Column('uri', Text),
-      Column('callId', Integer, ForeignKey('calls.id'))
+      Column('callId', Integer, ForeignKey('calls.id')),
+      Column('accountId', Integer, ForeignKey('accounts.id'))
     )
     rel = relationship(Call, backref=backref('notifications', order_by=id))
+    rel = relationship(Account, backref=backref('notifications', order_by=id))
 
     conferences_table = Table('conferences', self.metadata,
       Column('id', Integer, primary_key=True),
@@ -353,8 +441,10 @@ class Resources:
       Column('dateCreated', DateTime),
       Column('dateUpdated', DateTime),
       Column('accountSid', String(34)),
-      Column('uri', Text)
+      Column('uri', Text),
+      Column('accountId', Integer, ForeignKey('accounts.id'))
     )
+    rel = relationship(Account, backref=backref('conferences', order_by=id))
 
     participants_table = Table('participants', self.metadata,
       Column('id', Integer, primary_key=True),
@@ -368,10 +458,12 @@ class Resources:
       Column('endConferenceOnExit', Boolean),
       Column('uri', Text),
       Column('callId', Integer, ForeignKey('calls.id')),
-      Column('conferenceId', Integer, ForeignKey('conferences.id'))
+      Column('conferenceId', Integer, ForeignKey('conferences.id')),
+      Column('accountId', Integer, ForeignKey('accounts.id'))
     )
     rel = relationship(Call, backref=backref('participants', order_by=id))
     rel = relationship(Conference, backref=backref('participants', order_by=id))
+    rel = relationship(Account, backref=backref('participants', order_by=id))
 
     accounts_table = Table('accounts', self.metadata,
       Column('id', Integer, primary_key=True),
@@ -398,8 +490,48 @@ class Resources:
       Column('direction', String(16)),
       Column('price', Integer),
       Column('apiVersion', String(10)),
-      Column('uri', Text)
+      Column('uri', Text),
+      Column('accountId', Integer, ForeignKey('accounts.id'))
     )
+    rel = relationship(Account, backref=backref('sms_messages', order_by=id))
+
+    outgoing_caller_ids_table = Table('outgoing_caller_ids', self.metadata,
+      Column('id', Integer, primary_key=True),
+      Column('sid', String(34), unique=True),
+      Column('dateCreated', DateTime),
+      Column('dateUpdated', DateTime),
+      Column('friendlyName', Text),
+      Column('phoneNumber', String(15)),
+      Column('accountSid', String(34)),
+      Column('uri', Text),
+      Column('accountId', Integer, ForeignKey('accounts.id'))
+    )
+    rel = relationship(Account, backref=backref('outgoing_caller_ids', order_by=id))
+
+    incoming_phone_numbers_table = Table('incoming_phone_numbers', self.metadata,
+      Column('id', Integer, primary_key=True),
+      Column('sid', String(34), unique=True),
+      Column('dateCreated', DateTime),
+      Column('dateUpdated', DateTime),
+      Column('friendlyName', Text),
+      Column('accountSid', String(34)),
+      Column('phoneNumber', String(15)),
+      Column('apiVersion', String(10)),
+      Column('voiceCallerIdLookup', Boolean),
+      Column('voiceUrl', Text),
+      Column('voiceMethod', String(16)),
+      Column('voiceFallbackUrl', Text),
+      Column('voiceFallbackMethod', String(16)),
+      Column('statusCallback', Text),
+      Column('statusCallbackMethod', String(16)),
+      Column('smsUrl', Text),
+      Column('smsMethod', String(16)),
+      Column('smsFallbackUrl', Text),
+      Column('smsFallbackMethod', String(16)),
+      Column('uri', Text),
+      Column('accountId', Integer, ForeignKey('accounts.id'))
+    )
+    rel = relationship(Account, backref=backref('incoming_phone_numbers', order_by=id))
 
     # create tables: ok to call multiple times
     self.metadata.create_all(self.engine)
@@ -413,6 +545,8 @@ class Resources:
     mapper(Participant, participants_table)
     mapper(Account, accounts_table)
     mapper(SmsMessage, sms_messages_table)
+    mapper(OutgoingCallerId, outgoing_caller_ids_table)
+    mapper(IncomingPhoneNumber, incoming_phone_numbers_table)
 
   def get_resource(self, resource_type, id):
     """
@@ -423,15 +557,21 @@ class Resources:
     @return JSON representation
     """
     if resource_type == 'account':
-      url = '/%s/Accounts/%s.json' % (settings.API_VERSION, id)
+      url = '/%s/Accounts/%s.json' % (self.api_version, id)
     elif resource_type == 'sms_message':
-      url = '/%s/Accounts/%s/SMS/Messages/%s.json' % (settings.API_VERSION, self.account_sid, id)
+      url = '/%s/Accounts/%s/SMS/Messages/%s.json' % (self.api_version, self.account_sid, id)
+    elif resource_type == 'recording':
+      url = '/%s/Accounts/%s/%s/%s' % (self.api_version, self.account_sid, self.format_url_resource_name(resource_type) + 's', id)
     else:
-      url = '/%s/Accounts/%s/%s/%s.json' % (settings.API_VERSION, self.account_sid, resource_type.capitalize() + 's', id)
-    print url
+      url = '/%s/Accounts/%s/%s/%s.json' % (self.api_version, self.account_sid, self.format_url_resource_name(resource_type) + 's', id)
+    #print url
     account = twilio.Account(self.account_sid, self.account_token)
-    d = simplejson.loads(account.request(url, 'GET'))
-    return d
+    try:
+      d = simplejson.loads(account.request(url, 'GET'))
+      return d
+    except Exception, e:
+      print e
+      return None
 
   def get_resources_list(self, resource_type, page):
     """
@@ -441,22 +581,22 @@ class Resources:
     @return JSON representation
     """
     if resource_type == 'account':
-      url = '/%s/Accounts.json' % settings.API_VERSION
+      url = '/%s/Accounts.json' % self.api_version
     elif resource_type == 'sms_message':
-      url = '/%s/Accounts/%s/SMS/Messages.json' % (settings.API_VERSION, self.account_sid)
+      url = '/%s/Accounts/%s/SMS/Messages.json' % (self.api_version, self.account_sid)
     else:
-      url = '/%s/Accounts/%s/%s.json?PageSize=50&Page=%d' % (settings.API_VERSION, self.account_sid, resource_type.capitalize() + 's', page)
-    print url
+      url = '/%s/Accounts/%s/%s.json?PageSize=50&Page=%d' % (self.api_version, self.account_sid, self.format_url_resource_name(resource_type) + 's', page)
+    #print url
     account = twilio.Account(self.account_sid, self.account_token)
-    d = simplejson.loads(account.request(url, 'GET'))
-    # test
-    #d = self.testGetResource(resource_type)
-    print 'page: %s' % d['page']
-    print 'num_pages: %s' % d['num_pages']
-    print 'next_page_uri: %s' % d['next_page_uri']
-    return d
+    try:
+      d = simplejson.loads(account.request(url, 'GET'))
+      d = self.test_get_resource(resource_type, d)
+      return d
+    except Exception, e:
+      print e
+      return None
 
-  def testGetResource(self, resource_type):
+  def test_get_resource(self, resource_type, d):
     """
     Testing different resources by filling them up manually instead of getting them
     from the server
@@ -467,7 +607,7 @@ class Resources:
       d['recordings'] = []
       recording = {}
       recording['sid'] = 'REda6f1e11047ebd6fe7a55f120be3a900'
-      recording['account_sid'] = 'ACda6f1e11047ebd6fe7a55f120be3a900'
+      recording['account_sid'] = 'ACa8e1bcd8948d695aa731bcc128b772dd'
       recording['api_version'] = '2010-01-01'
       recording['call_sid'] = 'CA73ac207638841f3ab868f95b4d201c02'
       recording['date_created'] = 'Fri, 17 Jul 2009 01:52:49 +0000'
@@ -481,7 +621,7 @@ class Resources:
       d['transcriptions'] = []
       resource = {}
       resource['sid'] = 'ACda6f1e11047ebd6fe7a55f120be3a900'
-      resource['account_sid'] = 'ACda6f1e11047ebd6fe7a55f120be3a900'
+      resource['account_sid'] = 'ACa8e1bcd8948d695aa731bcc128b772dd'
       resource['status'] = 'completed'
       resource['recording_sid'] = 'REda6f1e11047ebd6fe7a55f120be3a900'
       resource['date_created'] = 'Fri, 17 Jul 2009 01:52:49 +0000'
@@ -497,7 +637,7 @@ class Resources:
       d['notifications'] = []
       resource = {}
       resource['sid'] = 'ACda6f1e11047ebd6fe7a55f120be3a900'
-      resource['account_sid'] = 'ACda6f1e11047ebd6fe7a55f120be3a900'
+      resource['account_sid'] = 'ACa8e1bcd8948d695aa731bcc128b772dd'
       resource['status'] = 'completed'
       resource['call_sid'] = 'CA97f95df0c70ab2fdbc379b457fa6fbfc'
       resource['date_created'] = 'Fri, 17 Jul 2009 01:52:49 +0000'
@@ -525,7 +665,7 @@ class Resources:
       resource['status'] = 'completed'
       resource['date_created'] = 'Fri, 17 Jul 2009 01:52:49 +0000'
       resource['date_updated'] = 'Fri, 17 Jul 2009 01:52:49 +0000'
-      resource['account_sid'] = 'ACda6f1e11047ebd6fe7a55f120be3a900'
+      resource['account_sid'] = 'ACa8e1bcd8948d695aa731bcc128b772dd'
       resource['uri'] = ''
       d['conferences'].append(resource)
     elif resource_type == 'participant':
@@ -537,25 +677,26 @@ class Resources:
       resource['conference_sid'] = 'CFda6f1e11047ebd6fe7a55f120be3a900'
       resource['date_created'] = 'Fri, 17 Jul 2009 01:52:49 +0000'
       resource['date_updated'] = 'Fri, 17 Jul 2009 01:52:49 +0000'
-      resource['account_sid'] = 'ACda6f1e11047ebd6fe7a55f120be3a900'
+      resource['account_sid'] = 'ACa8e1bcd8948d695aa731bcc128b772dd'
       resource['muted'] = '0'
       resource['start_conference_on_enter'] = '0'
       resource['end_conference_on_exit'] = '0'
       resource['uri'] = ''
       d['participants'].append(resource)
+    return d
 
   def process(self):
     """
     Main loop processing new resources and active ones to make sure
     we always have the latest resources data in the DB
     """
-    while True:
+    while not self.stop:
       for lr in self.list_resources:
         # process active resources list
         self.process_active(lr)
         # check for new resources
         self.process_new(lr)
-      break
+      time.sleep(5)
 
   def process_active(self, lr):
     """
@@ -571,7 +712,7 @@ class Resources:
       # if resource status done, add it to DB
       if not self.active_resource(lr['type'], res):
         # create object and add it
-        self.add_object(lr, res)
+        self.add_resource(lr, res)
       self.session.commit()
 
   def process_new(self, lr):
@@ -583,6 +724,7 @@ class Resources:
     res = self.get_resources_list(lr['type'], lr['page'])
     # check if we have more items to process
     if res['total'] > lr['items']:
+      print 'process %d new %ss' % (res['total'] - lr['items'], lr['type'])
       while True:
         for r in res[lr['type']+'s'][lr['offset']:]:
           # process resources received
@@ -591,16 +733,20 @@ class Resources:
           if self.active_resource(lr['type'], r):
             lr['active'][r['sid']] = r
           else:
-            self.add_object(lr, r)
+            self.add_resource(lr, r)
         self.session.commit()
+        # process resources dependencies
+        self.process_resources_dependencies(lr, res[lr['type']+'s'][lr['offset']:])
         # process next page if any
         if res['next_page_uri'] == None:
           lr['offset'] = res['end'] + 1
           lr['items'] = res['total']
+          print 'save offset: %d, items: %d, page: %d' % (lr['offset'], lr['items'], lr['page'])
           break
         else:
           lr['page'] += 1
           lr['offset'] = 0
+          print 'get page: %d' % (lr['page'])
           res = self.get_resources_list(lr['type'], lr['page'])
 
 
@@ -616,14 +762,21 @@ class Resources:
         return True
     return False
     
-  def add_object(self, lr, resource):
+  def add_resource(self, lr, resource):
     """
     Add resource object to DB. Set relations.
 
     @param lr list resource
     @param resource resource JSON
     """
+    # check if resource is in DB
+    if self.resource_exists(lr, resource):
+      return None
     # if object has a relation with another object, set it
+    if lr['type'] != 'account':
+      # get account id
+      account = self.session.query(Account).filter_by(sid=resource['account_sid'])[0]
+      resource['account_id'] = account.id
     if lr['type'] in ('recording', 'notification'):
       # get call id
       call = self.session.query(Call).filter_by(sid=resource['call_sid'])[0]
@@ -639,10 +792,62 @@ class Resources:
       conference = self.session.query(Conference).filter_by(sid=resource['conference_sid'])[0]
       resource['conference_id'] = conference.id
     # create object and add it
-    o = lr['c'](resource)
+    o = lr['cls'](resource)
     self.session.add(o)
 
+  def resource_exists(self, lr, resource):
+    """
+    Check if a resource exists in the DB
+
+    @param lr list resource
+    @param resource JSON resource
+    @return True if exists, False if not
+    """
+    if 'sid' in resource:
+      if self.session.query(lr['cls']).filter_by(sid=resource['sid']).count():
+        return True
+    return False
+
+  def process_resources_dependencies(self, lr, resources):
+    """
+    Process each resource dependencies
+
+    Example: download recording file for each recording resource
+
+    @param lr list resource
+    @param resources resources JSON
+    """
+    if lr['type'] == 'recording':
+      for res in resources:
+        data = self.get_resource(lr['type'], res['sid'])
+        if data:
+          f = open(self.recording_path+'/'+res['sid'], 'w+')
+          f.write(data)
+          f.close
+
+
+  def format_url_resource_name(self, name):
+    """
+    """
+    s = ''.join(self.lower_camelcase(word if word else '_' for word in name.split('_')))
+    print s
+    return s
+
+  def lower_camelcase(self, seq):
+    """
+    """
+    it = iter(seq)
+    #for word in it:
+    #  yield word.lower()
+    #  if word.isalnum(): break
+    for word in it:
+      yield word.capitalize()
+
+
 def convert_rfc822_to_mysql_datetime(str):
+  """
+  """
   d = parsedate(str)
   return '%d-%d-%d %02d:%02d:%02d' % (d[0], d[1], d[2], d[3], d[4], d[5])
+
 
