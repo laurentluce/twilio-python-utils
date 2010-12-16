@@ -293,23 +293,56 @@ class Resources(Thread):
     """
     Thread.__init__(self)
     # settings passed
+    if not 'account_sid' in settings:
+      raise TwilioException("Twilio account SID is required")
+    if not 'account_token' in settings:
+      raise TwilioException("Twilio account token is required")
     self.account_sid = settings['account_sid']
     self.account_token = settings['account_token']
     self.api_version = '2010-04-01'
+    if not 'database_type' in settings:
+      raise TwilioException("Database type is required")
     self.database_type = settings['database_type']
+    if not 'database_name' in settings:
+      raise TwilioException("Database name is required")
     self.database_name = settings['database_name'] 
-    self.database_user = settings['database_user'] 
-    self.database_password = settings['database_password'] 
-    self.database_host = settings['database_host']
-    self.database_port = settings['database_port']
-    self.recording_format = settings['recording_format']
-    self.recording_path = settings['recording_path']
-    if not os.path.exists(self.recording_path):
-      os.mkdir(self.recording_path)
+    if not 'database_user' in settings:
+      self.database_user = 'root'
+    else:
+      self.database_user = settings['database_user'] 
+    if not 'database_password' in settings:
+      raise TwilioException("Database user password is required")
+    self.database_password = settings['database_password']
+    if not 'database_host' in settings:
+      self.database_host = 'localhost'
+    else:
+      self.database_host = settings['database_host']
+    if not 'database_port' in settings:
+      self.database_port = 3306
+    else:
+      self.database_port = settings['database_port']
+    if not 'download_recordings' in settings:
+      self.download_recordings = False
+    else:
+      self.download_recordings = settings['download_recordings']
+    if self.download_recordings:
+      self.recording_format = settings['recording_format']
+      self.recording_path = settings['recording_path']
+      if not os.path.exists(self.recording_path):
+        os.mkdir(self.recording_path)
+    if not 'page_size' in settings:
+      self.page_size = 50
+    else:
+      self.page_size = settings['page_size']
+    if not 'check_frequency' in settings:
+      self.check_frequency = 5
+    else:
+      self.check_frequency = settings['check_frequency']
     self.engine = None
     self.metadata = None
     self.session = None
     self.stop = False
+    self.dbg_level = 2
     # add list of resources to process
     self.list_resources = []
     resources = (('account', Account),
@@ -324,7 +357,7 @@ class Resources(Thread):
                  ('incoming_phone_number', IncomingPhoneNumber) 
                  )
     for t, c in resources:
-      lr = dict(type=t, page=0, offset=0, pages=0, items=0, active={}, cls=c)
+      lr = dict(type=t, items=0, active={}, cls=c)
       self.list_resources.append(lr)
 
     self.setup_connection()
@@ -334,13 +367,13 @@ class Resources(Thread):
     """
     Start main process loop
     """
-    self.process()
+    self.process(loop=True)
 
   def setup_connection(self):
     """
     Create DB session
     """
-    self.engine = create_engine('%s://%s:%s@%s:%s/%s' % (self.database_type, self.database_user, self.database_password, self.database_host, self.database_port, self.database_name))
+    self.engine = create_engine('%s://%s:%s@%s:%d/%s' % (self.database_type, self.database_user, self.database_password, self.database_host, self.database_port, self.database_name))
     Session = sessionmaker(bind=self.engine)
     self.session = Session()
   
@@ -350,7 +383,8 @@ class Resources(Thread):
     tables and classes.
     """
     self.metadata = MetaData()
-    
+   
+    # Calls table
     calls_table = Table('calls', self.metadata,
       Column('id', Integer, primary_key=True),
       Column('sid', String(34), unique=True),
@@ -365,7 +399,7 @@ class Resources(Thread):
       Column('startTime', DateTime),
       Column('endTime', DateTime),
       Column('duration', Integer),
-      Column('price', Integer),
+      Column('price', String(16)),
       Column('direction', String(16)),
       Column('answeredBy', String(16)),
       Column('forwardedFrom', String(15)),
@@ -375,6 +409,7 @@ class Resources(Thread):
     )
     rel = relationship(Account, backref=backref('calls', order_by=id))
     
+    # Recordings table
     recordings_table = Table('recordings', self.metadata,
       Column('id', Integer, primary_key=True),
       Column('sid', String(34), unique=True),
@@ -390,7 +425,8 @@ class Resources(Thread):
     )
     rel = relationship(Call, backref=backref('recordings', order_by=id))
     rel = relationship(Account, backref=backref('recordings', order_by=id))
-   
+  
+    # Transcription table
     transcriptions_table = Table('transcriptions', self.metadata,
       Column('id', Integer, primary_key=True),
       Column('sid', String(34), unique=True),
@@ -401,7 +437,7 @@ class Resources(Thread):
       Column('recordingSid', String(34)),
       Column('duration', Integer),
       Column('transcriptionText', Text),
-      Column('price', Integer),
+      Column('price', String(16)),
       Column('uri', Text),
       Column('recordingId', Integer, ForeignKey('recordings.id')),
       Column('accountId', Integer, ForeignKey('accounts.id'))
@@ -409,6 +445,7 @@ class Resources(Thread):
     rel = relationship(Recording, backref=backref('transcriptions', order_by=id))
     rel = relationship(Account, backref=backref('transcriptions', order_by=id))
 
+    # Notifications table
     notifications_table = Table('notifications', self.metadata,
       Column('id', Integer, primary_key=True),
       Column('sid', String(34), unique=True),
@@ -433,6 +470,7 @@ class Resources(Thread):
     rel = relationship(Call, backref=backref('notifications', order_by=id))
     rel = relationship(Account, backref=backref('notifications', order_by=id))
 
+    # Conferences table
     conferences_table = Table('conferences', self.metadata,
       Column('id', Integer, primary_key=True),
       Column('sid', String(34), unique=True),
@@ -446,6 +484,7 @@ class Resources(Thread):
     )
     rel = relationship(Account, backref=backref('conferences', order_by=id))
 
+    # Participants table
     participants_table = Table('participants', self.metadata,
       Column('id', Integer, primary_key=True),
       Column('callSid', String(34)),
@@ -465,6 +504,7 @@ class Resources(Thread):
     rel = relationship(Conference, backref=backref('participants', order_by=id))
     rel = relationship(Account, backref=backref('participants', order_by=id))
 
+    # Accounts table
     accounts_table = Table('accounts', self.metadata,
       Column('id', Integer, primary_key=True),
       Column('sid', String(34)),
@@ -475,7 +515,8 @@ class Resources(Thread):
       Column('authToken', String(34)),
       Column('uri', Text),
     )
-   
+  
+    # SMS messages table
     sms_messages_table = Table('sms_messages', self.metadata,
       Column('id', Integer, primary_key=True),
       Column('sid', String(34), unique=True),
@@ -488,13 +529,14 @@ class Resources(Thread):
       Column('body', String(160)),
       Column('status', String(16)),
       Column('direction', String(16)),
-      Column('price', Integer),
+      Column('price', String(16)),
       Column('apiVersion', String(10)),
       Column('uri', Text),
       Column('accountId', Integer, ForeignKey('accounts.id'))
     )
     rel = relationship(Account, backref=backref('sms_messages', order_by=id))
 
+    # Outgoing caller IDs table
     outgoing_caller_ids_table = Table('outgoing_caller_ids', self.metadata,
       Column('id', Integer, primary_key=True),
       Column('sid', String(34), unique=True),
@@ -508,6 +550,7 @@ class Resources(Thread):
     )
     rel = relationship(Account, backref=backref('outgoing_caller_ids', order_by=id))
 
+    # Incoming phone numbers table
     incoming_phone_numbers_table = Table('incoming_phone_numbers', self.metadata,
       Column('id', Integer, primary_key=True),
       Column('sid', String(34), unique=True),
@@ -564,13 +607,13 @@ class Resources(Thread):
       url = '/%s/Accounts/%s/%s/%s' % (self.api_version, self.account_sid, self.format_url_resource_name(resource_type) + 's', id)
     else:
       url = '/%s/Accounts/%s/%s/%s.json' % (self.api_version, self.account_sid, self.format_url_resource_name(resource_type) + 's', id)
-    #print url
+    self.debug(url, 2)
     account = twilio.Account(self.account_sid, self.account_token)
     try:
       d = simplejson.loads(account.request(url, 'GET'))
       return d
     except Exception, e:
-      print e
+      self.debug(e, 1)
       return None
 
   def get_resources_list(self, resource_type, page):
@@ -583,17 +626,17 @@ class Resources(Thread):
     if resource_type == 'account':
       url = '/%s/Accounts.json' % self.api_version
     elif resource_type == 'sms_message':
-      url = '/%s/Accounts/%s/SMS/Messages.json' % (self.api_version, self.account_sid)
+      url = '/%s/Accounts/%s/SMS/Messages.json?PageSize=%d&Page=%d' % (self.api_version, self.account_sid, self.page_size, page)
     else:
-      url = '/%s/Accounts/%s/%s.json?PageSize=50&Page=%d' % (self.api_version, self.account_sid, self.format_url_resource_name(resource_type) + 's', page)
-    #print url
+      url = '/%s/Accounts/%s/%s.json?PageSize=%d&Page=%d' % (self.api_version, self.account_sid, self.format_url_resource_name(resource_type) + 's', self.page_size, page)
+    self.debug(url, 2)
     account = twilio.Account(self.account_sid, self.account_token)
     try:
       d = simplejson.loads(account.request(url, 'GET'))
       d = self.test_get_resource(resource_type, d)
       return d
     except Exception, e:
-      print e
+      self.debug(e, 1)
       return None
 
   def test_get_resource(self, resource_type, d):
@@ -685,10 +728,12 @@ class Resources(Thread):
       d['participants'].append(resource)
     return d
 
-  def process(self):
+  def process(self, loop):
     """
     Main loop processing new resources and active ones to make sure
     we always have the latest resources data in the DB
+
+    @param loop loop or not
     """
     while not self.stop:
       for lr in self.list_resources:
@@ -696,7 +741,9 @@ class Resources(Thread):
         self.process_active(lr)
         # check for new resources
         self.process_new(lr)
-      time.sleep(5)
+      if not loop:
+        break
+      time.sleep(self.check_frequency)
 
   def process_active(self, lr):
     """
@@ -709,11 +756,14 @@ class Resources(Thread):
     for key, res in lr['active'].items():
       # get resource from server and check for completion
       res = self.get_resource(lr['type'], res['sid'])
-      # if resource status done, add it to DB
-      if not self.active_resource(lr['type'], res):
-        # create object and add it
-        self.add_resource(lr, res)
-      self.session.commit()
+      if res:
+        # if resource status done, add it to DB
+        if not self.active_resource(lr['type'], res):
+          self.debug('%s: %s completed - add it to DB' % (lr['type'], res['sid']), 1)
+          # create object and add it
+          self.add_resource(lr, res)
+          del lr['active'][key]
+    self.session.commit()
 
   def process_new(self, lr):
     """
@@ -721,44 +771,55 @@ class Resources(Thread):
 
     @param lr list resource to process
     """
-    res = self.get_resources_list(lr['type'], lr['page'])
+    page = 0
+    res = self.get_resources_list(lr['type'], page)
     # check if we have more items to process
-    if res['total'] > lr['items']:
-      print 'process %d new %ss' % (res['total'] - lr['items'], lr['type'])
+    if res and res['total'] > lr['items']:
+      count = res['total'] - lr['items']
+      self.debug('processing %d new %ss' % (count, lr['type']), 1)
+      items = 0
       while True:
-        for r in res[lr['type']+'s'][lr['offset']:]:
-          # process resources received
-          # if active resource, add it to the active list
-          # if not, add to DB
-          if self.active_resource(lr['type'], r):
-            lr['active'][r['sid']] = r
+        sitems = 0
+        if res:
+          for r in res[lr['type']+'s']:
+            print r
+            # process resources received
+            # if active resource, add it to the active list
+            # if not, add to DB
+            if self.active_resource(lr['type'], r):
+              if r['sid'] in lr['active']:
+                break
+              self.debug('add %s - %s to active list - will add it to DB when completed' % (lr['type'], r['sid']), 1)
+              lr['active'][r['sid']] = r
+            else:
+              if self.add_resource(lr, r) == False:
+                break
+            items += 1
+            sitems += 1
+          self.session.commit()
+          self.debug('%d / %d' % (items, count), 1)
+          # process resources dependencies
+          self.process_resources_dependencies(lr, res[lr['type']+'s'][:sitems])
+          # process next page if any
+          if res['next_page_uri'] == None:
+            lr['items'] += count
+            self.debug('save items: %d' % (lr['items']), 2)
+            break
           else:
-            self.add_resource(lr, r)
-        self.session.commit()
-        # process resources dependencies
-        self.process_resources_dependencies(lr, res[lr['type']+'s'][lr['offset']:])
-        # process next page if any
-        if res['next_page_uri'] == None:
-          lr['offset'] = res['end'] + 1
-          lr['items'] = res['total']
-          print 'save offset: %d, items: %d, page: %d' % (lr['offset'], lr['items'], lr['page'])
-          break
-        else:
-          lr['page'] += 1
-          lr['offset'] = 0
-          print 'get page: %d' % (lr['page'])
-          res = self.get_resources_list(lr['type'], lr['page'])
+            self.debug('get next page', 2)
+            page += 1
+            res = self.get_resources_list(lr['type'], page)
 
 
   def active_resource(self, resource_type, resource):
     """
-    Is this resource active or finished?
+    Is this resource active or completed?
 
     @param resource_type type of resource: call, sms...
     @return True if resource is active or False if not
     """
-    if (resource_type in ('call', 'transcription', 'conference') and
-        resource['status'] in ('queued', 'ringing', 'in-progress', 'init')):
+    if (resource_type in ('call', 'transcription', 'conference', 'sms_message') and
+        resource['status'] in ('queued', 'ringing', 'in-progress', 'init', 'sending')):
         return True
     return False
     
@@ -771,7 +832,7 @@ class Resources(Thread):
     """
     # check if resource is in DB
     if self.resource_exists(lr, resource):
-      return None
+      return False
     # if object has a relation with another object, set it
     if lr['type'] != 'account':
       # get account id
@@ -794,6 +855,7 @@ class Resources(Thread):
     # create object and add it
     o = lr['cls'](resource)
     self.session.add(o)
+    return True
 
   def resource_exists(self, lr, resource):
     """
@@ -817,20 +879,22 @@ class Resources(Thread):
     @param lr list resource
     @param resources resources JSON
     """
-    if lr['type'] == 'recording':
-      for res in resources:
-        data = self.get_resource(lr['type'], res['sid'])
-        if data:
-          f = open(self.recording_path+'/'+res['sid'], 'w+')
-          f.write(data)
-          f.close
+    if resources:
+      if lr['type'] == 'recording' and self.download_recordings:
+        self.debug('downloading %d recordings' % (len(resources)), 1)
+        for res in resources:
+          data = self.get_resource(lr['type'], res['sid'])
+          if data:
+            f = open(self.recording_path+'/'+res['sid'], 'w+')
+            f.write(data)
+            f.close
 
 
   def format_url_resource_name(self, name):
     """
     """
     s = ''.join(self.lower_camelcase(word if word else '_' for word in name.split('_')))
-    print s
+    self.debug(s, 2)
     return s
 
   def lower_camelcase(self, seq):
@@ -843,6 +907,12 @@ class Resources(Thread):
     for word in it:
       yield word.capitalize()
 
+  def debug(self, s, level):
+    """
+    """
+    if self.dbg_level >= level:
+      print s
+
 
 def convert_rfc822_to_mysql_datetime(str):
   """
@@ -850,4 +920,5 @@ def convert_rfc822_to_mysql_datetime(str):
   d = parsedate(str)
   return '%d-%d-%d %02d:%02d:%02d' % (d[0], d[1], d[2], d[3], d[4], d[5])
 
+class TException(Exception): pass
 
