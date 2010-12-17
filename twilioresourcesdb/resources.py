@@ -604,7 +604,11 @@ class Resources(Thread):
     elif resource_type == 'sms_message':
       url = '/%s/Accounts/%s/SMS/Messages/%s.json' % (self.api_version, self.account_sid, id)
     elif resource_type == 'recording':
-      url = '/%s/Accounts/%s/%s/%s' % (self.api_version, self.account_sid, self.format_url_resource_name(resource_type) + 's', id)
+      if self.recording_format == 'mp3':
+        ext = '.mp3'
+      else:
+        ext = ''
+      url = '/%s/Accounts/%s/%s/%s%s' % (self.api_version, self.account_sid, self.format_url_resource_name(resource_type) + 's', id, ext)
     else:
       url = '/%s/Accounts/%s/%s/%s.json' % (self.api_version, self.account_sid, self.format_url_resource_name(resource_type) + 's', id)
     self.debug(url, 2)
@@ -728,7 +732,7 @@ class Resources(Thread):
       d['participants'].append(resource)
     return d
 
-  def process(self, loop):
+  def process(self, loop=False):
     """
     Main loop processing new resources and active ones to make sure
     we always have the latest resources data in the DB

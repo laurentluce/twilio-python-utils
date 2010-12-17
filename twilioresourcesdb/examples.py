@@ -21,7 +21,7 @@ def example2(settings):
   r = resources.Resources(settings)
 
   # get resources and then stop
-  r.process(loop=False)
+  r.process()
 
 
 if __name__ == '__main__':

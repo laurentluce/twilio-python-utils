@@ -1,16 +1,99 @@
 Twilio Python Utils
 
-Twilio Resources DB module:
+Twilio Resources DB: twilioresourcesdb package
+----------------------------------------------
 
-This library allows you to download your resources (calls, sms, notifications...) to your database. It also keep processing new ones so you don't have to worry to be out of sync.
+This library allows you to download your resources (calls, sms, notifications, conferences, incoming phone numbers...) to your database. It also keep processing new ones so you don't have to worry to be out of sync.
 
-Dependencies:
+Database supported: MySQL, posgreSQL. Please send me an email if you would like me to add support for a different database.
+
+Dependencies
+------------
 
 Twilio Python Library helper: git clone https://github.com/twilio/twilio-python.git; python setup.py install
-SQLAchemy: easy_install SQLAlchemy
+SQLAchemy (if using MySQL or posgreSQL): easy_install SQLAlchemy
 simplejson: easy_install simplejson
 
-Install library:
+Install library
+---------------
 
 git clone https://github.com/laurentluce/twilio-python-utils.git
 python setup.py install
+
+Options
+-------
+
+You need to pass a dictionnary of settings when you create a Resources object. Those are the different keys you can pass:
+
+account_sid : Twilio account SID - 'ACxxxxx'
+account_token : Twilio account token - 'xxxxx'
+  
+database_type : type of database - 'mysql', 'posgresql'
+database_user : database username - 'xxx' (default: 'root')
+database_password : database user password - 'xxxx'
+database_host : database ip address or hostname - 'xxxx' (default: 'localhost')
+database_port : database port number - xxxx (default: 3306)
+database_name : database name - 'xxxx'
+
+check_frequency : frequency in seconds on how often to check for new resources - xx (default: 5) 
+download_recordings : enable recordings downloads (audio files) - True/False (default: False)
+  recording_path : absolute path to store recordings audio files - '/xxx/xxx/xxx...'
+  recording_format : audio files format: 'wav', 'mp3'
+
+
+Code examples
+-------------
+
+1- Create Resources object and pass setting to it
+  
+  settings = {}
+  # Twilio account
+  settings['account_sid'] = 'ACxxxx'
+  settings['account_token'] = 'xxxx'
+  # DB
+  settings['database_type'] = 'mysql'
+  settings['database_user'] = 'root'
+  settings['database_password'] = 'xxxx'
+  settings['database_host'] = 'xxx.xxx.xxx.xxx'
+  settings['database_name'] = 'twilio'
+  # Resources options
+  settings['check_frequency'] = 300 # check for new resources every 5 minutes
+  settings['download_recordings'] = True
+  settings['recording_path'] = '/data/recordings/'
+  settings['recording_format'] = 'wav'
+
+  # instantiate resources object. This will setup a connection with the DB and create
+  # the table if necessary
+  r = resources.Resources(settings)
+
+2- Get resources from Twilio servers (calls, sms messages, conferences...)
+
+  # this is a blocking call. See below for a non-blocking method.
+  # Resources will be downloaded using the Twilio REST API and they will be
+  # added to the DB
+  r.process()
+
+3- Get resources from Twilio servers continuously - non-blocking call
+
+  # start a thread which keeps downloading new resources and saving them in the DB
+  r.start()
+  
+
+Tables created (MySQL and postgreSQL only)
+------------------------------------------
+
++------------------------+
+| accounts               | 
+| calls                  | 
+| conferences            | 
+| incoming_phone_numbers | 
+| notifications          | 
+| outgoing_caller_ids    | 
+| participants           | 
+| recordings             | 
+| sms_messages           | 
+| transcriptions         | 
++------------------------+
+
+ 
+
