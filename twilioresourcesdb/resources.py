@@ -7,9 +7,18 @@ import time
 import simplejson
 import twilio
 
-from sqlalchemy import Table, Column, Integer, String, DateTime, MetaData, ForeignKey, create_engine, Text, Boolean
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, mapper, relationship, backref
+try:
+  from sqlalchemy import Table, Column, Integer, String, DateTime, MetaData, ForeignKey, create_engine, Text, Boolean
+  from sqlalchemy.ext.declarative import declarative_base
+  from sqlalchemy.orm import sessionmaker, mapper, relationship, backref
+except:
+  pass
+
+try:
+  import redis
+except:
+  pass
+
 
 class Call(object):
   """
@@ -311,14 +320,22 @@ class Resources(Thread):
     else:
       self.database_user = settings['database_user'] 
     if not 'database_password' in settings:
-      raise TwilioException("Database user password is required")
-    self.database_password = settings['database_password']
+      self.database_password = None
+    else:
+      self.database_password = settings['database_password']
     if not 'database_host' in settings:
       self.database_host = 'localhost'
     else:
       self.database_host = settings['database_host']
     if not 'database_port' in settings:
-      self.database_port = 3306
+      if self.database_type == 'redis':
+        self.database_port = 6379
+      elif self.database_type == 'mysql':
+        self.database_port = 3306
+      elif self.database_type == 'posgresql':
+        self.database_port = 5432
+      else:
+        self.database_port = None
     else:
       self.database_port = settings['database_port']
     if not 'download_recordings' in settings:
@@ -341,8 +358,13 @@ class Resources(Thread):
     self.engine = None
     self.metadata = None
     self.session = None
+    self.redis = None
     self.stop = False
     self.dbg_level = 2
+    if self.database_type == 'redis':
+      self.sql = False
+    else:
+      self.sql = True
     # add list of resources to process
     self.list_resources = []
     resources = (('account', Account),
@@ -361,7 +383,8 @@ class Resources(Thread):
       self.list_resources.append(lr)
 
     self.setup_connection()
-    self.setup_tables()
+    if self.sql:
+      self.setup_tables()
 
   def run(self):
     """
@@ -373,9 +396,17 @@ class Resources(Thread):
     """
     Create DB session
     """
-    self.engine = create_engine('%s://%s:%s@%s:%d/%s' % (self.database_type, self.database_user, self.database_password, self.database_host, self.database_port, self.database_name))
-    Session = sessionmaker(bind=self.engine)
-    self.session = Session()
+    if self.sql:
+      self.engine = create_engine('%s://%s:%s@%s:%d/%s' % (self.database_type, self.database_user, self.database_password, self.database_host, self.database_port, self.database_name))
+      Session = sessionmaker(bind=self.engine)
+      self.session = Session()
+    else:
+      args = {}
+      args['host'] = self.database_host
+      args['port'] = self.database_port
+      args['db'] = 0
+      args['password'] = self.database_password
+      self.redis = redis.Redis(**args)
   
   def setup_tables(self):
     """
@@ -767,7 +798,8 @@ class Resources(Thread):
           # create object and add it
           self.add_resource(lr, res)
           del lr['active'][key]
-    self.session.commit()
+    if self.sql:
+      self.session.commit()
 
   def process_new(self, lr):
     """
@@ -800,7 +832,8 @@ class Resources(Thread):
                 break
             items += 1
             sitems += 1
-          self.session.commit()
+          if self.sql:
+            self.session.commit()
           self.debug('%d / %d' % (items, count), 1)
           # process resources dependencies
           self.process_resources_dependencies(lr, res[lr['type']+'s'][:sitems])
@@ -837,28 +870,31 @@ class Resources(Thread):
     # check if resource is in DB
     if self.resource_exists(lr, resource):
       return False
-    # if object has a relation with another object, set it
-    if lr['type'] != 'account':
-      # get account id
-      account = self.session.query(Account).filter_by(sid=resource['account_sid'])[0]
-      resource['account_id'] = account.id
-    if lr['type'] in ('recording', 'notification'):
-      # get call id
-      call = self.session.query(Call).filter_by(sid=resource['call_sid'])[0]
-      resource['call_id'] = call.id
-    elif lr['type'] == 'transcription':
-      # get recording id
-      recording = self.session.query(Recording).filter_by(sid=resource['recording_sid'])[0]
-      resource['recording_id'] = recording.id
-    elif lr['type'] == 'participant':
-      # get call and conference id 
-      call = self.session.query(Call).filter_by(sid=resource['call_sid'])[0]
-      resource['call_id'] = call.id
-      conference = self.session.query(Conference).filter_by(sid=resource['conference_sid'])[0]
-      resource['conference_id'] = conference.id
-    # create object and add it
-    o = lr['cls'](resource)
-    self.session.add(o)
+    if self.sql:
+      # if object has a relation with another object, set it
+      if lr['type'] != 'account':
+        # get account id
+        account = self.session.query(Account).filter_by(sid=resource['account_sid'])[0]
+        resource['account_id'] = account.id
+      if lr['type'] in ('recording', 'notification'):
+        # get call id
+        call = self.session.query(Call).filter_by(sid=resource['call_sid'])[0]
+        resource['call_id'] = call.id
+      elif lr['type'] == 'transcription':
+        # get recording id
+        recording = self.session.query(Recording).filter_by(sid=resource['recording_sid'])[0]
+        resource['recording_id'] = recording.id
+      elif lr['type'] == 'participant':
+        # get call and conference id 
+        call = self.session.query(Call).filter_by(sid=resource['call_sid'])[0]
+        resource['call_id'] = call.id
+        conference = self.session.query(Conference).filter_by(sid=resource['conference_sid'])[0]
+        resource['conference_id'] = conference.id
+      # create object and add it
+      o = lr['cls'](resource)
+      self.session.add(o)
+    else:
+      self.redis.set(self.get_resource_key(lr, resource), resource)
     return True
 
   def resource_exists(self, lr, resource):
@@ -870,8 +906,12 @@ class Resources(Thread):
     @return True if exists, False if not
     """
     if 'sid' in resource:
-      if self.session.query(lr['cls']).filter_by(sid=resource['sid']).count():
-        return True
+      if self.sql:
+        if self.session.query(lr['cls']).filter_by(sid=resource['sid']).count():
+          return True
+      else:
+        if self.redis.get(self.get_resource_key(lr, resource)):
+          return True
     return False
 
   def process_resources_dependencies(self, lr, resources):
@@ -893,6 +933,10 @@ class Resources(Thread):
             f.write(data)
             f.close
 
+  def get_resource_key(self, lr, resource):
+    """
+    """
+    return '%s' % resource['sid']
 
   def format_url_resource_name(self, name):
     """
@@ -916,7 +960,6 @@ class Resources(Thread):
     """
     if self.dbg_level >= level:
       print s
-
 
 def convert_rfc822_to_mysql_datetime(str):
   """

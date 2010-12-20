@@ -5,7 +5,7 @@ def example1(settings):
   # instantiate resources object
   r = resources.Resources(settings)
 
-  # start process loop to download resources from server continously
+  # start process loop to download resources from server continuously
   r.start()
 
   while True:
@@ -35,7 +35,6 @@ if __name__ == '__main__':
   settings['database_user'] = 'root'
   settings['database_password'] = 'belize09'
   settings['database_host'] = 'localhost'
-  settings['database_port'] = 3306
   settings['database_name'] = 'twilio'
   # Resources options
   settings['check_frequency'] = 5

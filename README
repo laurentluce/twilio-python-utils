@@ -5,13 +5,16 @@ Twilio Resources DB: twilioresourcesdb package
 
 This library allows you to download your resources (calls, sms, notifications, conferences, incoming phone numbers...) to your database. It also keep processing new ones so you don't have to worry to be out of sync.
 
-Database supported: MySQL, posgreSQL. Please send me an email if you would like me to add support for a different database.
+Database supported: MySQL, posgreSQL and Redis.
+
+Please send me an email if you would like me to add support for another database.
 
 Dependencies
 ------------
 
 Twilio Python Library helper: git clone https://github.com/twilio/twilio-python.git; python setup.py install
 SQLAchemy (if using MySQL or posgreSQL): easy_install SQLAlchemy
+redis-py (if using Redis): easy_install redis
 simplejson: easy_install simplejson
 
 Install library
@@ -28,12 +31,12 @@ You need to pass a dictionnary of settings when you create a Resources object. T
 account_sid : Twilio account SID - 'ACxxxxx'
 account_token : Twilio account token - 'xxxxx'
   
-database_type : type of database - 'mysql', 'posgresql'
-database_user : database username - 'xxx' (default: 'root')
-database_password : database user password - 'xxxx'
+database_type : type of database - 'mysql', 'posgresql', 'redis'
+database_user : database username - 'xxx' (default: 'root', not required for Redis)
+database_password : database user password - 'xxxx' (default: None)
 database_host : database ip address or hostname - 'xxxx' (default: 'localhost')
-database_port : database port number - xxxx (default: 3306)
-database_name : database name - 'xxxx'
+database_port : database port number - xxxx (default: 3306 for MySQL, 5432 for posgreSQL, 6379 for Redis)
+database_name : database name - 'xxxx' (not required for Redis database) 
 
 check_frequency : frequency in seconds on how often to check for new resources - xx (default: 5) 
 download_recordings : enable recordings downloads (audio files) - True/False (default: False)
@@ -79,7 +82,7 @@ Code examples
   r.start()
   
 
-Tables created (MySQL and postgreSQL only)
+Tables created (MySQL and posgreSQL only)
 ------------------------------------------
 
 +------------------------+
@@ -95,5 +98,12 @@ Tables created (MySQL and postgreSQL only)
 | transcriptions         | 
 +------------------------+
 
- 
+Redis keys and values
+---------------------
+
+The resource's key is the resource SID and the value is the JSON resource object.
+
+Call resource: CAxxxx
+SMS message resource: SMxxxx
+...
 
