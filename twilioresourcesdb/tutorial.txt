@@ -1,0 +1,148 @@
+If you are looking for an easy way to download your Twilio resources (calls, sms, notifications, recordings...) to your own database so you can access them faster and also when you are offline. Twilio Resources DB is a Python module doing just that.
+
+<img src="/images/blog/twilio-python-utils/twilio_resources.png">
+
+<h2>Features</h2>
+
+<ul>
+<li>Download Twilio resources to a database.</li>
+<li>Support for MySQL, PostgreSQL and Redis.</li>
+<li>Automatic database tables creation for SQL DB.</li>
+<li>Handle tables relations for SQL DB.</li>
+<li>Option to download new resources continuously.</li>
+</ul>
+
+<h2>Requirements</h2>
+
+We need to install simplejson so we can use the JSON format for the HTTP requests results: ie: resources returned using JSON instead of XML.
+
+[code lang="bash"]
+sudo easy_install simplejson
+[/code]
+
+Depending on the database used, we need to install SQLAlchemy for MySQL/PostgreSQL or redis for Redis.
+
+[code lang="bash"]
+easy_install SQLAlchemy
+easy_install redis
+[/code]
+
+We also need the Twilio Python library helper to help us with the HTTP requests to the Twilio server:
+
+[code lang="bash"]
+git clone https://github.com/twilio/twilio-python.git
+python setup.py install
+[/code]
+
+At last, we need to install the Twilio resources DB library:
+
+[code lang="bash"]
+git clone https://github.com/laurentluce/twilio-python-utils.git
+python setup.py install
+[/code]
+ 
+<h2>Download resources to a database</h2>
+
+Here is an example of a simple Python script using the library to download all the resources from the Twilio server to a MySQL database.
+
+A "Resources" object needs to be created with a list of settings:
+
+[code lang="python"]
+settings = {}
+# Twilio account
+settings['account_sid'] = 'Twilio account SID'
+settings['account_token'] = 'Twilio account token'
+# DB
+settings['database_type'] = 'mysql'
+settings['database_user'] = 'username'
+settings['database_password'] = 'password'
+settings['database_host'] = 'hostname or ip address'
+settings['database_name'] = 'database name'
+# Resources options
+settings['check_frequency'] = 300 # check for new resources every 5 minutes
+# Download recordings audio files
+settings['download_recordings'] = True
+settings['recording_path'] = '/data/recordings/'
+settings['recording_format'] = 'wav'
+
+# Instantiate resources object.
+# This will setup a connection with the DB and create the table if necessary.
+r = resources.Resources(settings)
+[/code]
+
+Here is the full list of options:
+
+<ul>
+<li>account_sid : Twilio account SID - 'ACxxxxx'</li>
+<li>account_token : Twilio account token - 'xxxxx'</li>
+<li>database_type : type of database - 'mysql', 'postgresql', 'redis'</li>
+<li>database_user : database username - 'xxx' (default: 'root', not required for Redis)</li>
+<li>database_password : database user password - 'xxxx' (default: None)</li>
+<li>database_host : database ip address or hostname - 'xxxx' (default: 'localhost')</li>
+<li>database_port : database port number - xxxx (default: 3306 for MySQL, 5432 for PostgreSQL, 6379 for Redis)</li>
+<li>database_name : database name - 'xxxx' (not required for Redis database) </li>
+<li>check_frequency : frequency in seconds on how often to check for new resources - xx (default: 5) </li>
+<li>download_recordings : enable recordings downloads (audio files) - True/False (default: False)</li>
+  <ul>
+  <li>recording_path : absolute path to store recordings audio files - '/xxx/xxx/xxx...'</li>
+  <li>recording_format : audio files format: 'wav', 'mp3'</li>
+  </ul>
+</ul>
+
+Next, we can download all the resources and then stop or we can start a thread downloading the resources continuously.
+
+First option - blocking call - download all resources then stop:
+
+[code lang="python"]
+r.process()
+[/code]
+
+Second option - start a thread to download resources continuously:
+
+[code lang="python"]
+r.start()
+[/code]
+
+Here is some code you may want to re-use to stop the thread when the script is interrupted:
+
+[code lang="python"]
+while True:
+  try:
+    time.sleep(1)
+  except (KeyboardInterrupt, SystemExit):
+    r.stop = True
+    r.join()
+    break
+[/code]
+
+<h2>MySQL and PostgreSQL database tables</h2>
+
+When you create the Resources object, the tables are automatically created for you (not if they already exist).
+
+Here is the list of tables created for you:
+
+<ul>
+<li>accounts</li>
+<li>calls</li>
+<li>conferences</li>
+<li>incoming_phone_numbers</li>
+<li>notifications</li>
+<li>outgoing_caller_ids</li>
+<li>participants</li>
+<li>recordings</li>
+<li>sms_messages</li>
+<li>transcriptions</li>
+</ul>
+
+<h2>Redis keys and values</h2>
+
+In case of Redis, there are not tables of course. We add the resources using keys and values.
+
+The resource's key is the resource SID and the value is the JSON resource object.
+
+Call resource: CAxxxx
+SMS message resource: SMxxxx
+...
+
+That's it for now. Don't hesitate to add comments if you have any feedback. I hope this library will help you.
+
