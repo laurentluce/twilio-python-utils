@@ -332,7 +332,7 @@ class Resources(Thread):
         self.database_port = 6379
       elif self.database_type == 'mysql':
         self.database_port = 3306
-      elif self.database_type == 'posgresql':
+      elif self.database_type == 'postgresql':
         self.database_port = 5432
       else:
         self.database_port = None
