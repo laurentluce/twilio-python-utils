@@ -1,12 +1,12 @@
 from distutils.core import setup
 setup(
-    name = "TwilioPythonUtils",
+    name = "twilio-python-utils",
     packages = ["twilioresourcesdb"],
     version = "0.1",
     description = "Twilio Python Utils",
     author = "Laurent Luce",
-    author_email = "laurentluce49@yahoo.com",
-    url = "http://github.com/laurentluce/twilio-resources-db/",
+    author_email = "",
+    url = "http://github.com/laurentluce/twilio-python-utils/",
     download_url = "",
     keywords = ["twilio","resources","database"],
     classifiers = [

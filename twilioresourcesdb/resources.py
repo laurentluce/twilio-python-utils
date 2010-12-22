@@ -19,7 +19,6 @@ try:
 except:
   pass
 
-
 class Call(object):
   """
   Call resource
@@ -303,17 +302,17 @@ class Resources(Thread):
     Thread.__init__(self)
     # settings passed
     if not 'account_sid' in settings:
-      raise TwilioException("Twilio account SID is required")
+      raise TException("Twilio account SID is required")
     if not 'account_token' in settings:
-      raise TwilioException("Twilio account token is required")
+      raise TException("Twilio account token is required")
     self.account_sid = settings['account_sid']
     self.account_token = settings['account_token']
     self.api_version = '2010-04-01'
     if not 'database_type' in settings:
-      raise TwilioException("Database type is required")
+      raise TException("Database type is required")
     self.database_type = settings['database_type']
     if not 'database_name' in settings:
-      raise TwilioException("Database name is required")
+      raise TException("Database name is required")
     self.database_name = settings['database_name'] 
     if not 'database_user' in settings:
       self.database_user = 'root'
@@ -676,8 +675,8 @@ class Resources(Thread):
 
   def test_get_resource(self, resource_type, d):
     """
-    Testing different resources by filling them up manually instead of getting them
-    from the server
+    Testing different resources by filling them up manually instead 
+    of getting them from the server
     """
     if resource_type == 'recording':
       d['total'] = 1
@@ -768,7 +767,7 @@ class Resources(Thread):
     Main loop processing new resources and active ones to make sure
     we always have the latest resources data in the DB
 
-    @param loop loop or not
+    @param loop 1 download or continuous
     """
     while not self.stop:
       for lr in self.list_resources:
@@ -782,9 +781,9 @@ class Resources(Thread):
 
   def process_active(self, lr):
     """
-    Process active resources like active calls to always have the latest resources
-    data in the DB. We don't add the resource until it is in an end state like
-    'completed'.
+    Process active resources like active calls to always have the 
+    latest resources data in the DB. We don't add the resource until 
+    it is in an end state like 'completed'.
 
     @param lr list resource to process
     """
@@ -935,11 +934,19 @@ class Resources(Thread):
 
   def get_resource_key(self, lr, resource):
     """
+    Return resource key
+
+    @param lr list resource
+    @param resource JSON resource
     """
     return '%s' % resource['sid']
 
   def format_url_resource_name(self, name):
     """
+    Format resource name to be used in URL: incoming_phone_number = IncomingPhoneNumber
+
+    @param name resource name
+    @returns formatted resource name to use in URL
     """
     s = ''.join(self.lower_camelcase(word if word else '_' for word in name.split('_')))
     self.debug(s, 2)
@@ -947,22 +954,32 @@ class Resources(Thread):
 
   def lower_camelcase(self, seq):
     """
+    Generator returning capitalized work from a list of words
+
+    @param seq sequency of words: 'abc', 'def'...
+    @returns each word capitalized
     """
     it = iter(seq)
-    #for word in it:
-    #  yield word.lower()
-    #  if word.isalnum(): break
     for word in it:
       yield word.capitalize()
 
   def debug(self, s, level):
     """
+    Debug handler
+
+    @param s debug message
+    @param level debug level: 0 = nothing, 1 = info, 2 = dev
     """
     if self.dbg_level >= level:
       print s
 
 def convert_rfc822_to_mysql_datetime(str):
   """
+  Convert RFC 822 date to MySQL datetime
+
+  'Fri, 17 Jul 2009 01:52:49 +0000' -> '2009-07-17 01:52:49'
+  @param str RFC 822 date string
+  @returns MySQL date string
   """
   d = parsedate(str)
   return '%d-%d-%d %02d:%02d:%02d' % (d[0], d[1], d[2], d[3], d[4], d[5])

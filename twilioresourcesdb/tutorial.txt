@@ -6,10 +6,24 @@ If you are looking for an easy way to download your Twilio resources (calls, sms
 
 <ul>
 <li>Download Twilio resources to a database.</li>
+<li>Download recordings audio files.</li>
 <li>Support for MySQL, PostgreSQL and Redis.</li>
 <li>Automatic database tables creation for SQL DB.</li>
 <li>Handle tables relations for SQL DB.</li>
 <li>Option to download new resources continuously.</li>
+</ul>
+
+This is the list of resource types we support:
+<ul>
+<li>Accounts</li>
+<li>Calls</li>
+<li>Notifications</li>
+<li>Recordings</li>
+<li>Transcriptions</li>
+<li>Sms Messages</li>
+<li>Conferences</li>
+<li>Incoming Phone Numbers</li>
+<li>Outgoing Caller Ids</li>
 </ul>
 
 <h2>Requirements</h2>
@@ -48,6 +62,9 @@ Here is an example of a simple Python script using the library to download all t
 A "Resources" object needs to be created with a list of settings:
 
 [code lang="python"]
+from twilioresourcesdb import resources
+
+# settings
 settings = {}
 # Twilio account
 settings['account_sid'] = 'Twilio account SID'
@@ -80,8 +97,9 @@ Here is the full list of options:
 <li>database_password : database user password - 'xxxx' (default: None)</li>
 <li>database_host : database ip address or hostname - 'xxxx' (default: 'localhost')</li>
 <li>database_port : database port number - xxxx (default: 3306 for MySQL, 5432 for PostgreSQL, 6379 for Redis)</li>
-<li>database_name : database name - 'xxxx' (not required for Redis database) </li>
+<li>database_name : database name - 'xxxx' (not required for Redis database)</li>
 <li>check_frequency : frequency in seconds on how often to check for new resources - xx (default: 5) </li>
+<li>page_size : number of resources to download at each request - xxxx (default: 50)</li>
 <li>download_recordings : enable recordings downloads (audio files) - True/False (default: False)</li>
   <ul>
   <li>recording_path : absolute path to store recordings audio files - '/xxx/xxx/xxx...'</li>
@@ -115,28 +133,45 @@ while True:
     break
 [/code]
 
+When an in-progress resource is received from the server, it is placed in a temporary list and checked against for completion regularly so we only save completed resources in the database. For example, a queued SMS message will be placed in this temporary list and only saved to the database when it is in a termination state: ie: completed, failed, dropped...
+
 <h2>MySQL and PostgreSQL database tables</h2>
 
 When you create the Resources object, the tables are automatically created for you (not if they already exist).
 
-Here is the list of tables created for you:
+Here is the list of tables created automatically:
 
 <ul>
 <li>accounts</li>
 <li>calls</li>
+<li>notifications</li>
+<li>recordings</li>
+<li>transcriptions</li>
+<li>sms_messages</li>
 <li>conferences</li>
 <li>incoming_phone_numbers</li>
-<li>notifications</li>
 <li>outgoing_caller_ids</li>
-<li>participants</li>
-<li>recordings</li>
-<li>sms_messages</li>
-<li>transcriptions</li>
+</ul>
+
+And those are the relationships using foreign keys:
+
+<ul>
+<li>calls -> accounts</li>
+<li>sms_messages -> accounts</li>
+<li>conferences -> accounts</li>
+<li>incoming_phone_numbers -> accounts</li>
+<li>outgoing_caller_ids -> accounts</li>
+<li>notifications -> accounts</li>
+<li>notifications -> calls</li>
+<li>recordings -> accounts</li>
+<li>recordings -> calls</li>
+<li>transcriptions -> accounts</li>
+<li>transcriptions -> recordings</li>
 </ul>
 
 <h2>Redis keys and values</h2>
 
-In case of Redis, there are not tables of course. We add the resources using keys and values.
+In case of Redis, we add the resources using keys and values.
 
 The resource's key is the resource SID and the value is the JSON resource object.
 
@@ -144,5 +179,5 @@ Call resource: CAxxxx
 SMS message resource: SMxxxx
 ...
 
-That's it for now. Don't hesitate to add comments if you have any feedback. I hope this library will help you.
+That's it for now. Don't hesitate to add comments if you have any feedback.
 

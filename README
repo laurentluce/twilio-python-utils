@@ -39,6 +39,7 @@ database_port : database port number - xxxx (default: 3306 for MySQL, 5432 for P
 database_name : database name - 'xxxx' (not required for Redis database) 
 
 check_frequency : frequency in seconds on how often to check for new resources - xx (default: 5) 
+page_size : number of resources to download at each request - xxxx (default: 50)
 download_recordings : enable recordings downloads (audio files) - True/False (default: False)
   recording_path : absolute path to store recordings audio files - '/xxx/xxx/xxx...'
   recording_format : audio files format: 'wav', 'mp3'
